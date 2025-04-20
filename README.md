@@ -34,3 +34,6 @@ Root Gallery
 ```
 python rename.py
 ```
+
+<img width="545" alt="image" src="https://github.com/user-attachments/assets/3d3ee5a6-2ead-475c-ac35-f233ce6f5116" />
+
