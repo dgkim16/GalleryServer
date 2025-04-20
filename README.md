@@ -1,4 +1,6 @@
 # README
+The entire project was generated via vibe coding for fun.
+
 ## Requirements
 - Windows OS
 - python >= 3.8
