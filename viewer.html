@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>게시글 보기</title>
+  <style>
+    :root {
+      --bg: #f8f8f8;
+      --text: #333;
+    }
+    body.dark {
+      --bg: #121212;
+      --text: #eee;
+    }
+    body {
+      font-family: sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 2rem;
+      text-align: center;
+      transition: background 0.3s, color 0.3s;
+    }
+  
+    img {
+      width: 100%;
+      max-width: 900px;
+      margin: 1rem auto;
+      display: block;
+      border-radius: 8px;
+    }
+  
+    .meta {
+      color: #999;
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+  
+    .error {
+      color: red;
+      font-size: 1rem;
+      margin-top: 2rem;
+    }
+  
+    #toggle-theme {
+      position: fixed;
+      top: 15px;
+      right: 15px;
+      background: #0077cc;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      z-index: 100;
+    }
+  
+    @media (max-width: 600px) {
+      body {
+        padding: 1rem;
+      }
+  
+      img {
+        width: 100%;
+        max-width: 100%;
+        border-radius: 4px;
+      }
+  
+      .meta {
+        font-size: 0.8rem;
+      }
+  
+      h1 {
+        font-size: 1.1rem;
+        word-break: break-word;
+      }
+    }
+  </style>
+  
+</head>
+<body>
+  <button id="toggle-theme">🌙</button>
+  <h1 id="title">게시글</h1>
+  <div class="meta" id="meta-info"></div>
+  <div id="image-container"></div>
+
+  <script>
+    // 🌙 다크 모드
+    function applyTheme() {
+      if (localStorage.getItem("theme") === "dark") {
+        document.body.classList.add("dark");
+      } else {
+        document.body.classList.remove("dark");
+      }
+    }
+    document.getElementById("toggle-theme").addEventListener("click", () => {
+      const isDark = document.body.classList.toggle("dark");
+      localStorage.setItem("theme", isDark ? "dark" : "light");
+    });
+    applyTheme();
+
+    const IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "gif"];
+    const PAD = 4;
+    const MAX_CONSECUTIVE_FAILS = 3;
+
+    const params = new URLSearchParams(window.location.search);
+    const page = params.get("page") || "default";
+    const root = params.get("root") || ".";
+    const titleEl = document.getElementById("title");
+    const metaEl = document.getElementById("meta-info");
+    const container = document.getElementById("image-container");
+
+    // 📄 meta.json
+    fetch(`${root}/${page}/meta.json`)
+      .then((res) => res.json())
+      .then((data) => {
+        titleEl.textContent = data.title || page;
+        metaEl.textContent = data.date || "";
+        document.title = data.title || "게시글 보기"; // Update page title
+      })
+      .catch(() => {
+        titleEl.textContent = page;
+        metaEl.textContent = "";
+      });
+
+    function pad(n) {
+      return n.toString().padStart(PAD, "0");
+    }
+
+    async function loadImageForIndex(index) {
+      for (const ext of IMAGE_EXTS) {
+        const filename = `${pad(index)}.${ext}`;
+        const path = `${root}/${page}/${filename}`;
+        console.log("🔄 시도:", path);
+
+        const success = await loadImage(path);
+        if (success) {
+          console.log("✅ 성공:", path);
+          return true; // Stop trying other formats
+        }
+      }
+
+      console.warn(`❌ ${index}번 이미지 실패 (모든 형식 시도 실패)`);
+      return false; // All formats failed
+    }
+
+    async function loadImage(path) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.src = path;
+        img.loading = "lazy"; // Add lazy loading
+
+        // append immediately to trigger loading
+        container.appendChild(img);
+
+        img.onload = () => resolve(true);
+        img.onerror = () => {
+          container.removeChild(img);
+          resolve(false);
+        };
+      });
+    }
+
+    async function loadImages() {
+      let index = 1;
+  let consecutiveFails = 0;
+
+  while (true) {
+    const success = await loadImageForIndex(index);
+
+    if (!success) {
+      consecutiveFails++;
+    } else {
+      consecutiveFails = 0;
+    }
+
+    if (consecutiveFails >= MAX_CONSECUTIVE_FAILS) {
+      if (index === 1) {
+        const err = document.createElement("div");
+        err.className = "error";
+        err.textContent = "📛 이미지를 불러올 수 없습니다.";
+        container.appendChild(err);
+
+        try {
+          await listFallbackImages();
+        } catch (err) {
+          console.error("Fallback error:", err);
+        }
+      }
+      break;
+    }
+
+    index++;
+  }
+}
+
+    async function listFallbackImages() {
+      try {
+        const dirHandle = await window.showDirectoryPicker();
+        for await (const [name, handle] of dirHandle.entries()) {
+          if (handle.kind === "file") {
+            const ext = name.split(".").pop().toLowerCase();
+            if (IMAGE_EXTS.includes(ext)) {
+              const file = await handle.getFile();
+              const url = URL.createObjectURL(file);
+              const img = new Image();
+              img.src = url;
+              img.loading = "lazy";
+              container.appendChild(img);
+            }
+          }
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') { // Ignore if user canceled the file picker
+          const errEl = document.createElement("div");
+          errEl.className = "error";
+          errEl.textContent = "📛 이미지를 불러올 수 없고, 폴더 접근도 실패했습니다.";
+          container.appendChild(errEl);
+          console.error(err);
+        }
+      }
+    }
+
+    loadImages();
+  </script>
+</body>
+</html>

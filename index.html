@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>아카라이브 스타일 게시판</title>
+  <style>
+    :root { --bg: #f4f4f4; --text: #333; }
+    body.dark { --bg: #121212; --text: #eee; }
+    body {
+      font-family: sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 2rem;
+      transition: background 0.3s, color 0.3s;
+      font-size: 0.88rem;
+    }
+    h1 { text-align: center; }
+    .tab-controls, .controls { text-align: center; margin-bottom: 1rem; }
+    .tab-controls button { margin: 0 5px; padding: 6px 12px; font-weight: bold; }
+    .tab-controls button.active { background: #0077cc; color: white; }
+    .controls input[type="number"], .controls input[type="text"] {
+      padding: 4px; font-size: 0.88rem;
+    }
+    .controls input[type="text"] {
+      width: 200px; margin-top: 0.5rem;
+    }
+    .post-list {
+      max-width: 900px; margin: 0 auto; padding: 0; list-style: none;
+    }
+    .post {
+      padding: 0.6rem 0.5rem;
+      border-bottom: 1px solid #ccc;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .post .info {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-grow: 1;
+      position: relative;
+    }
+    .post-number { color: #999; width: 40px; text-align: right; }
+    .post-title {
+      color: var(--text);
+      text-decoration: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 400px;
+    }
+    .meta-right {
+      font-size: 0.8rem;
+      color: #777;
+      text-align: right;
+      min-width: 120px;
+    }
+    .post .star {
+      cursor: pointer;
+      font-size: 1.2rem;
+      padding-left: 0.5rem;
+    }
+    .pagination {
+      text-align: center;
+      margin-top: 1rem;
+    }
+    .pagination button {
+      margin: 0 5px;
+      padding: 4px 8px;
+    }
+    #toggle-theme {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      padding: 5px 10px;
+      background: #0077cc;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .thumbnail {
+      display: none;
+      position: absolute;
+      top: 0;
+      right: 50%;
+      z-index: 10;
+      border: 1px solid #ccc;
+      background: white;
+      padding: 4px;
+      max-width: 100px;
+      max-height: 150px;
+    }
+    .post:hover .thumbnail {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <button id="toggle-theme">🌙</button>
+  <h1>게시글 목록</h1>
+  <div class="tab-controls">
+    <button id="tabAll" class="active" onclick="switchTab('all')">전체 보기</button>
+    <button id="tabStarred" onclick="switchTab('starred')">⭐ 즐겨찾기</button>
+  </div>
+
+  <ul class="post-list" id="postList"></ul>
+  <div class="pagination" id="pagination"></div>
+  <div class="controls">
+    <div>
+      <label for="pageSizeInput">페이지당 게시글 수:</label>
+      <input type="number" id="pageSizeInput" value="10" min="1" />
+      <button onclick="renderPage(1)">적용</button>
+    </div>
+    <div>
+      <input type="text" id="searchInput" placeholder="게시글 검색" oninput="renderPage(1)" />
+    </div>
+  </div>
+
+  <script>
+    const posts = [];
+    const starred = JSON.parse(localStorage.getItem('starredPosts') || '[]');
+    let currentPage = 1;
+    let pageSize = 10;
+    let currentTab = 'all';
+    let rootDirName = '';
+
+    document.getElementById('toggle-theme').onclick = () => {
+      const isDark = document.body.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    };
+    if (localStorage.getItem('theme') === 'dark') {
+      document.body.classList.add('dark');
+    }
+
+    async function loadPagesJSON() {
+      try {
+        const res = await fetch('./pages.json');
+        const data = await res.json();
+        rootDirName = data.root;
+        posts.length = 0;
+        for (const p of data.pages) {
+          posts.push({
+            id: p.page,
+            title: p.meta?.title || p.page,
+            date: p.meta?.date || '',
+            views: p.meta?.views || 0,
+            starred: p.meta?.starred || false
+          });
+          if (p.meta?.starred && !starred.includes(p.page)) {
+            starred.push(p.page);
+          }
+        }
+        renderPage(1);
+      } catch (e) {
+        console.error("pages.json 로딩 실패:", e);
+      }
+    }
+
+    function renderPage(page = 1) {
+      currentPage = page;
+      pageSize = parseInt(document.getElementById('pageSizeInput').value) || 10;
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const listEl = document.getElementById('postList');
+      listEl.innerHTML = '';
+
+      let filtered = posts.filter(p => p.title.toLowerCase().includes(search));
+      if (currentTab === 'starred') {
+        filtered = filtered.filter(p => starred.includes(p.id));
+      }
+
+      const start = (page - 1) * pageSize;
+      const paginated = filtered.slice(start, start + pageSize);
+
+      paginated.forEach((post, idx) => {
+        const li = document.createElement('li');
+        li.className = 'post';
+
+        const info = document.createElement('div');
+        info.className = 'info';
+
+        const number = document.createElement('span');
+        number.className = 'post-number';
+        number.textContent = `#${start + idx + 1}`;
+        info.appendChild(number);
+
+        const link = document.createElement('a');
+        link.href = `viewer.html?page=${encodeURIComponent(post.id)}&root=${encodeURIComponent(rootDirName)}`;
+        link.textContent = post.title;
+        link.className = 'post-title';
+        link.onclick = async (e) => {
+          e.preventDefault();
+          const real = posts.find(p => p.id === post.id);
+          if (real) real.views = (real.views || 0) + 1;
+
+          // ✅ Update views in pages.json via POST
+          await fetch('/update-views', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ page: post.id })
+          });
+
+          renderPage(currentPage);
+          setTimeout(() => window.location.href = link.href, 100);
+        };
+        info.appendChild(link);
+
+        const thumb = document.createElement('img');
+        thumb.className = 'thumbnail';
+        thumb.loading = 'lazy';
+        tryLoadThumbnail(thumb, rootDirName, post.id);
+        info.appendChild(thumb);
+
+        const meta = document.createElement('div');
+        meta.className = 'meta-right';
+        meta.innerHTML = `<span class="post-date">${post.date || '-'}</span> · 조회 ${post.views}`;
+
+        const star = document.createElement('div');
+        star.className = 'star';
+        const isStarred = starred.includes(post.id);
+        star.innerHTML = `<span style="color: ${isStarred ? 'gold' : '#ccc'};">★</span>`;
+        star.onclick = async () => {
+          const idx = starred.indexOf(post.id);
+          let isStarred;
+
+          if (idx >= 0) {
+            starred.splice(idx, 1);
+            star.innerHTML = `<span style="color: #ccc;">★</span>`;
+            isStarred = false;
+          } else {
+            starred.push(post.id);
+            star.innerHTML = `<span style="color: gold;">★</span>`;
+            isStarred = true;
+          }
+
+          localStorage.setItem('starredPosts', JSON.stringify(starred));
+          if (currentTab === 'starred') renderPage(1);
+
+          // ✅ Update pages.json on the server
+          await fetch('/update-starred', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ page: post.id, starred: isStarred })
+          });
+        };
+
+        li.appendChild(info);
+        li.appendChild(meta);
+        li.appendChild(star);
+        listEl.appendChild(li);
+      });
+
+      renderPagination(filtered.length);
+    }
+
+    function renderPagination(totalItems) {
+      const totalPages = Math.ceil(totalItems / pageSize);
+      const pag = document.getElementById('pagination');
+      pag.innerHTML = '';
+      for (let i = 1; i <= totalPages; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = i;
+        if (i === currentPage) btn.disabled = true;
+        btn.onclick = () => renderPage(i);
+        pag.appendChild(btn);
+      }
+    }
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.getElementById('tabAll').classList.remove('active');
+      document.getElementById('tabStarred').classList.remove('active');
+      document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+      renderPage(1);
+    }
+
+    function tryLoadThumbnail(img, root, page) {
+      const exts = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
+      (function tryNext(i = 0) {
+        if (i >= exts.length) return;
+        const path = `${root}/${page}/0001.${exts[i]}`;
+        fetch(path, { method: 'HEAD' }).then(res => {
+          if (res.ok) img.src = path;
+          else tryNext(i + 1);
+        }).catch(() => tryNext(i + 1));
+      })();
+    }
+
+    window.addEventListener('DOMContentLoaded', loadPagesJSON);
+  </script>
+</body>
+</html>
